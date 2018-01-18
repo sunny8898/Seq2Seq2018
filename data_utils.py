@@ -1,6 +1,3 @@
-import os
-import tensorflow as tf
-
 
 # 特殊词：用于padding的<PAD>，表示未登录词的<UNK>, 表示decoder句子开始/结束的<GO>和<EOS> 
 # 初步处理数据时，在target的每句话结尾加上<EOS>
@@ -40,7 +37,7 @@ def convert_to_token_ids(data, vocab, is_target = False):
         vocab: 用于查找词语对应标号的dict
         is_target: data是否是target，若是，将在每一行的后面加上结束的标记
     Returns:
-        ids: 加上了起始标记，并将词语转成数字标号后的data
+        ids: 加上了结束标记，并将词语转成数字标号后的data
     '''
     ids = []
     for line in data:
@@ -80,23 +77,6 @@ def prepare_data(trn_src_path, trn_tgt_path, dev_src_path, dev_tgt_path, max_voc
     trn_tgt_ids = convert_to_token_ids(trn_tgt_words, vocab_dict, True)
     dev_src_ids = convert_to_token_ids(dev_src_words, vocab_dict)
     dev_tgt_ids = convert_to_token_ids(dev_tgt_words, vocab_dict, True)
-    mx = -1
-    mx = max(mx, max(len(w) for w in trn_src_ids))
-    mx = max(mx, max(len(w) for w in trn_tgt_ids))
-    mx = max(mx, max(len(w) for w in dev_src_ids))
-    mx = max(mx, max(len(w) for w in dev_tgt_ids))
-    print('max length = %d' % mx)
-    cnt = 0
-    for w in trn_src_ids:
-        if (len(w) > 40):
-            cnt += 1
-    print(cnt)
-    mi = mx
-    mi = min(mi, min(len(w) for w in trn_src_ids))
-    mi = min(mi, min(len(w) for w in trn_tgt_ids))
-    mi = min(mi, min(len(w) for w in dev_src_ids))
-    mi = min(mi, min(len(w) for w in dev_tgt_ids))
-    print('min length = %d' % mi)
     return trn_src_ids, trn_tgt_ids, dev_src_ids, dev_tgt_ids, vocab_list
 
 def self_test():
