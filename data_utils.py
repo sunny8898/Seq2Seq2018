@@ -4,6 +4,9 @@
 # 喂数据时，再把source和target的每句话padding到对应bucket的长度.特别地，对于target中的句子，我们在前面增加<GO>，并且去掉最后一个字符
 
 special_words = ['<PAD>', '<GO>', '<EOS>', '<UNK>'] 
+PAD_ID = 0
+GO_ID = 1
+EOS_ID = 2
 UNK_ID = 3
 
 
@@ -67,6 +70,7 @@ def prepare_data(trn_src_path, trn_tgt_path, dev_src_path, dev_tgt_path, max_voc
     Returns:
         trn_src_ids, trn_tgt_ids, dev_src_ids, dev_tgt_ids: 转为token-id后的对应文件
         vocab_list: 词表
+        vocab_dict: 词典
     '''
     trn_src_words = read_data(trn_src_path)
     trn_tgt_words = read_data(trn_tgt_path)
@@ -77,7 +81,7 @@ def prepare_data(trn_src_path, trn_tgt_path, dev_src_path, dev_tgt_path, max_voc
     trn_tgt_ids = convert_to_token_ids(trn_tgt_words, vocab_dict, True)
     dev_src_ids = convert_to_token_ids(dev_src_words, vocab_dict)
     dev_tgt_ids = convert_to_token_ids(dev_tgt_words, vocab_dict, True)
-    return trn_src_ids, trn_tgt_ids, dev_src_ids, dev_tgt_ids, vocab_list
+    return trn_src_ids, trn_tgt_ids, dev_src_ids, dev_tgt_ids, vocab_list, vocab_dict
 
 def self_test():
 
@@ -110,4 +114,4 @@ def self_test():
 
     print(vocab_list[: 100])
     
-self_test()
+# self_test()
