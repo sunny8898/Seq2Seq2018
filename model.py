@@ -1,16 +1,21 @@
+# -*- coding:utf-8 -*-  
+
 import tensorflow as tf
 import numpy as np
+import s2s_basic as s2s
 
 setattr(tf.contrib.rnn.GRUCell, '__deepcopy__', lambda self, _: self)
 setattr(tf.contrib.rnn.BasicLSTMCell, '__deepcopy__', lambda self, _: self)
 setattr(tf.contrib.rnn.MultiRNNCell, '__deepcopy__', lambda self, _: self)
 
+'''
 def seq2seq_with_buckets(encoder_inputs, decoder_inputs, 
                          targets, target_weights, buckets, 
                          seq2seq_f, softmax_loss_function):
     return tf.contrib.legacy_seq2seq.model_with_buckets(encoder_inputs, decoder_inputs, 
                                                         targets, target_weights, buckets, 
                                                         seq2seq_f, softmax_loss_function = softmax_loss_function)
+'''
 
 class Seq2SeqModel(object):
     
@@ -108,7 +113,7 @@ class Seq2SeqModel(object):
        # self.outputs, self.losses = seq2seq_with_buckets(self.encoder_inputs, self.decoder_inputs, 
         #                                                 self.targets, self.target_weights, buckets, 
          #                                                lambda x, y: seq2seq_f(x, y, forward_only), sampled_loss)
-        self.outputs, self.losses = tf.contrib.legacy_seq2seq.model_with_buckets(
+        self.outputs, self.losses = s2s.model_with_buckets(
           self.encoder_inputs, self.decoder_inputs, self.targets,
           self.target_weights, buckets, lambda x, y: seq2seq_f(x, y, True),
           softmax_loss_function=sampled_loss)
