@@ -66,12 +66,13 @@ dev_encoder_inputs, dev_decoder_inputs = put_data_into_buckets(dev_src_ids, dev_
 def get_batch(encoder_inputs_all, decoder_inputs_all, bucket_idx, batch_size):
     '''从encoder_inputs_all, decoder_inputs_all的第bucket_idx个bucket里，随机选出batch_size大小的句对
     Args:
-        encoder_inputs_all, decoder_inputs_all: 两个个list，第i个元素是包含了所有长度落在第i个bucket中的句子的list
+        encoder_inputs_all, decoder_inputs_all: 两个list，第i个元素是包含了所有长度落在第i个bucket中的句子的list
         bucket_idx: 要从中取句对的bucket的编号
         batch_size: batch的大小
     Returns:
-        encoder_inputs, decoder_inputs: 两个分别包含了对应bucket_size个元素的list，第i个元素是一个长度为batch_size的list，代表每个句子第i个词
-        target_weights: 用于决定计算loss时是否考虑结果的某个位：若target的该位是padding出来的，就置为0，否则置为1
+        encoder_inputs, decoder_inputs: [bucket_size(+1) *
+        batch_size]两个分别包含了对应bucket_size/bucket_size+1个元素的list，第i个元素是一个长度为batch_size的list，代表每个句子第i个词
+        target_weights: [bucket_size * batch_size]用于决定计算loss时是否考虑结果的某个位：若target的该位是padding出来的，就置为0，否则置为1
         
     '''
     bucket_len = len(encoder_inputs_all[bucket_idx])
