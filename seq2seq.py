@@ -34,25 +34,25 @@ def dynamic_rnn(cell,
 
     output_size = cell.output_size
 
-    element_shape = tensor_shape.TensorShape(_convert_to_shape(batch_size)).concatenate(_convert_to_shape(output_size))
-    print(element_shape)
-
+    output_element_shape = tensor_shape.TensorShape(_convert_to_shape(batch_size)).concatenate(_convert_to_shape(output_size))
 
     time = tf.constant(0)
 
     if initial_state is not None:
         state = initial_state 
     else:
-        state = cell.zero_state(batch_size, dtype)
+        state = cell.zero_state(batch_size, dtype = dtype)
 
+    input_ta = tf.TensorArray(dtype = inputs.dtype, size = time_steps,
+                              element_shape = inputs.shape[1 : ])
+    input_ta = input_ta.unstack(inputs)
 
-    print("so far so good")
     
     output_ta = tf.TensorArray(dtype = tf.float32, size = time_steps,
-                               element_shape = element_shape)
+                               element_shape = output_element_shape)
 
     def _time_step(time, output_ta_t, state):
-        input_t = inputs[time]
+        input_t = input_ta.read(time)
         output, next_state = cell(input_t, state)
         output_ta_t = output_ta_t.write(time, output)
         return (time + 1, output_ta_t, next_state)
@@ -67,9 +67,9 @@ def dynamic_rnn(cell,
         body = _time_step,
         loop_vars = (time, output_ta, state))
     
-    outputs = outputs.stack()
+    final_outputs = outputs.stack()
 
-    return (outputs, final_state)
+    return (final_outputs, final_state)
 
 
     

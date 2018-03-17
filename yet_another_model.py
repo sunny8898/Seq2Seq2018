@@ -47,7 +47,7 @@ class Seq2SeqModel(object):
                                                    dtype = tf.float32,
                                                    initializer =
                                                    tf.truncated_normal_initializer(
-                                                       mean = 0.0, stddev = 0.1), 
+                                                       mean = 1.0, stddev = 0.0), 
                                                    )
         decoder_embedding_matrix = tf.get_variable(name = "decoder_embedding_matrix",
                                                    shape = [vocab_size,
@@ -65,24 +65,27 @@ class Seq2SeqModel(object):
         with tf.variable_scope("encoder"):
             encoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(rnn_size) 
                                                         for _ in range(num_layers)])
+
             self.encoder_all_outputs, self.encoder_final_state = seq2seq.dynamic_rnn(
                 encoder_cell, self.encoder_inputs_embedded, dtype = tf.float32)
-            print(self.encoder_final_state)
+
 
 
     def step(self, sess):
-        feed_dict = {self.encoder_inputs.name : [[4, 5], [7, 7], [2, 2], [9, 2]]}
-        outputs = sess.run(self.encoder_all_outputs, feed_dict = feed_dict)
-        return outputs
+        feed_dict = {self.encoder_inputs.name : [[0, 2], [2, 3], [2, 2], [1, 0]]}
+        (outputs, final_state) = sess.run([self.encoder_all_outputs, self.encoder_final_state], feed_dict = feed_dict)
+        return (outputs, final_state)
 
             
 
-model = Seq2SeqModel(10, 11, 1, 2, 1, 0.9, True)
+model = Seq2SeqModel(4, 5, 1, 2, 1, 0.9, True)
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
-    outputs = model.step(sess)
+    (outputs, final_state) = model.step(sess)
+    print("from my dyanmic_rnn")
     print(outputs)
+    print(final_state)
 
 
 
