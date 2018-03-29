@@ -1,85 +1,23 @@
 import abc
 import six
 import tensorflow as tf
-import numpy as np
+from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import tensor_array_ops
-from tensorflow.python.framework import tensor_shape
-from tensorflow.python.framework import tensor_util
-from tensorflow.python.framework import ops
 
-from tensorflow.python.util import nest
+
+def unstack(inputs):
+    return tf.TensorArray(
+        dtype = inputs.dtype, 
+        size = array_ops.shape(inputs)[0], 
+        element_shape = array_ops.shape(inputs)[1 : ]).unstack(inputs)
 
 def _convert_to_shape(shape): 
     if isinstance(shape, ops.Tensor):
         return tensor_shape.as_shape(tensor_util.constant_value(shape))
     else:
         return shape
-
-def dynamic_rnn(cell,
-                inputs,
-                initial_state = None,
-                dtype = None):
-    """
-    Args:
-        cell: RNNCell
-        inputs: [T, B, D]
-        initial_state: RNNCell的初始状态
-    Returns:
-        outputs: 所有输出
-        final_state: RNNCell的最终状态
-    """
-
-    inputs_shape = array_ops.shape(inputs) # type: ops.Tensor
-    time_steps = inputs_shape[0]
-    batch_size = inputs_shape[1]
-
-    output_size = cell.output_size
-
-    output_element_shape = tensor_shape.TensorShape(_convert_to_shape(batch_size)).concatenate(output_size) # [B * output_size] 
-    
-
-    time = tf.constant(0)
-
-    if initial_state is not None:
-        state = initial_state 
-    else:
-        state = cell.zero_state(batch_size, dtype = dtype)
-
-    input_ta = tf.TensorArray(dtype = inputs.dtype, size = time_steps,
-                              element_shape = inputs.shape[1 : ]) # [T, B, D]
-    input_ta = input_ta.unstack(inputs)
-    output_ta = tf.TensorArray(dtype = tf.float32, size = time_steps,
-                               element_shape = output_element_shape) # [T, B, D]
-
-    def _time_step(time, output_ta_t, state): # while_loop的循环体
-        input_t = input_ta.read(time) # 读当前步的输入
-        output, next_state = cell(input_t, state) # 产生输出与新的状态
-        output_ta_t = output_ta_t.write(time, output) # 写入输出
-        return (time + 1, output_ta_t, next_state)
-
-    def _cond(time, output_ta_t, state): # while_loop的循环中止判定函数
-        loop_bound = time_steps
-        return time < loop_bound
-
-    _, outputs, final_state = control_flow_ops.while_loop(
-        cond = _cond,
-        body = _time_step,
-        loop_vars = (time, output_ta, state))
-    
-    final_outputs = outputs.stack() # 将TensorArray变成一个Tensor
-
-    return (final_outputs, final_state)
-
-
-    
-def unstack(inputs):
-    return tf.TensorArray(
-        dtype = inputs.dtype, 
-        size = array_ops.shape(inputs)[0], 
-        element_shape = array_ops.shape(inputs)[1 : ]).unstack(inputs)
 
 @six.add_metaclass(abc.ABCMeta)
 class Helper(object):
@@ -282,4 +220,19 @@ def dynamic_decode(decoder):
     final_outputs = output_ta.stack()
 
     return (final_outputs, final_state)
- 
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

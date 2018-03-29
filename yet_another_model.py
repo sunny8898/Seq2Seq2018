@@ -70,6 +70,22 @@ class Seq2SeqModel(object):
                 encoder_cell, self.encoder_inputs_embedded, dtype = tf.float32)
 
 
+        with tf.variable_scope("decoder"):
+            decoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(rnn_size)
+                                                        for _ in range(num_layers)])
+            attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                num_units = attention_depth,
+                memory = self.encoder_all_outputs)
+
+            attn_decoder = tf.contrib.seq2seq.AttentionWrapper(decoder_cell,
+                                                               attention_mechanism,
+                                                               output_attention = True)
+
+            fc_layer = tf.layers.Dense(vocab_size)
+
+            training_helper = tf.contrib.seq2seq.TrainingHelper(self.decoder_inputs_embedded)
+
+
 
     def step(self, sess):
         feed_dict = {self.encoder_inputs.name : [[0, 2], [2, 3], [2, 2], [1, 0]]}
