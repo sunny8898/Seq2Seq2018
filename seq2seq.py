@@ -1,5 +1,6 @@
 import abc
 import six
+import collections
 import tensorflow as tf
 import numpy as np
 from tensorflow.python.ops import array_ops
@@ -79,12 +80,15 @@ def unstack(inputs):
     return tf.TensorArray(
         dtype = inputs.dtype, 
         size = array_ops.shape(inputs)[0], 
-        element_shape = array_ops.shape(inputs)[1 : ]).unstack(inputs)
+        element_shape = inputs.shape[1 : ]).unstack(inputs)
 
 @six.add_metaclass(abc.ABCMeta)
 class Helper(object):
     @abc.abstractproperty 
     def batch_size(self):
+        raise NotImplementedError
+    @abc.abstractproperty
+    def sample_ids_shape(self):
         raise NotImplementedError
     @abc.abstractmethod
     def initialize(self):
@@ -110,7 +114,7 @@ class TrainingHelper(Helper):
         self._seq_lengths = array_ops.tile([self._time_step], [self._batch_size])
         self._inputs = inputs
         self._inputs_ta = unstack(inputs)
-        self.zero_inputs = array_ops.zeros_like(inputs[0, : ])
+        self._zero_inputs = array_ops.zeros_like(inputs[0, : ])
     @property
     def inputs(self):
         return self._inputs
@@ -123,6 +127,9 @@ class TrainingHelper(Helper):
     @property
     def batch_size(self):
         return self._batch_size
+    @property
+    def sample_ids_shape(self):
+        return tensor_shape.TensorShape([])
 
     def initialize(self):
         finished = math_ops.equal(0, self._seq_lengths)
@@ -134,7 +141,7 @@ class TrainingHelper(Helper):
 
     def sample(self, time, outputs, state):
         # outputs : [B, D]
-        return math_ops.cast(math_ops.argmax(outputs, axis = -1), dtypes.int32)
+        return math_ops.cast(math_ops.argmax(outputs, axis = -1), tf.int32)
         # [B]
 
     def next_inputs(self, time, outputs, state, sample_ids):
@@ -143,7 +150,7 @@ class TrainingHelper(Helper):
         all_finished = math_ops.reduce_all(finished)
         next_inputs = control_flow_ops.cond(all_finished,
                                             lambda: self._zero_inputs,
-                                            lambda: self._inputs_ta.read(next_tinext_time))
+                                            lambda: self._inputs_ta.read(next_time))
         return (finished, next_inputs, state)
 
     
@@ -163,28 +170,32 @@ class GreedyEmbeddingHelper(Helper):
         """
         self._embedding_fn = (lambda ids: tf.nn.embedding_lookup(embedding_matrix, ids))
         self._start_tokens = ops.convert_to_tensor(
-            start_tokens, dtype = dtypes.int32, name = "start_tokens")
+            start_tokens, dtype = tf.int32, name = "start_tokens")
         self._batch_size = array_ops.size(start_tokens)
         self._end_token = ops.convert_to_tensor(
-            end_token, dtype = dtypes.int32, name = "end_token")
+            end_token, dtype = tf.int32, name = "end_token")
         self._start_inputs = self._embedding_fn(self._start_tokens)
 
     @property
     def batch_size(self):
         return self._batch_size
 
+    @property
+    def sample_ids_shape(self):
+        return tensor_shape.TensorShape([])
+
     def initialize(self):
         finished = array_ops.tile([False], [self._batch_size])
         return (finished, self._start_inputs)
 
     def sample(self, time, outputs, state):
-        return math_ops.cast(math_ops.argmax(outputs, axis = -1), dtypes.int32)
+        return math_ops.cast(math_ops.argmax(outputs, axis = -1), tf.int32)
 
     def next_inputs(self, time, outputs, state, sample_ids):
         next_time = time + 1
         finished = math_ops.equal(sample_ids, self._end_token)
         all_finished = math_ops.reduce_all(finished)
-        next_inputs = control_flow_ops.cond( all_finished, 
+        next_inputs = control_flow_ops.cond(all_finished, 
                                             lambda: self._start_inputs, 
                                             lambda: self._embedding_fn(sample_ids))
         return (finished, next_inputs, state)
@@ -193,25 +204,14 @@ class GreedyEmbeddingHelper(Helper):
 @six.add_metaclass(abc.ABCMeta)
 class Decoder(object):
 
-    """An RNN Decoder abstract interface object.
-  Concepts used by this interface:
-  - `inputs`: (structure of) tensors and TensorArrays that is passed as input to
-    the RNNCell composing the decoder, at each time step.
-  - `state`: (structure of) tensors and TensorArrays that is passed to the
-    RNNCell instance as the state.
-  - `finished`: boolean tensor telling whether each sequence in the batch is
-    finished.
-  - `outputs`: Instance of BasicDecoderOutput. Result of the decoding, at each
-    time step.
-  """ 
-  @property
+  @abc.abstractproperty
   def batch_size(self):
       raise NotImplementedError
-  @property
+  @abc.abstractproperty
   def output_size(self):
       raise NotImplementedError
-  @property
-  def output_type(self):
+  @abc.abstractproperty
+  def output_dtype(self):
       raise NotImplementedError
 
   @abc.abstractmethod
@@ -223,6 +223,10 @@ class Decoder(object):
       """Returns (outputs, next_state, next_inputs, finished)"""
       raise NotImplementedError
 
+# 在decode的时候，我们不仅希望得到logits(训练时)，也希望得到预测时作为输入的真·预测输出，用一个namedtuple组织起来一同作为输出
+class BasicDecoderOutput(collections.namedtuple("BasicDecoderOutput",
+                                                ("rnn_output", "sample_id"))):
+    pass
 
 class BasicDecoder(Decoder):
     def __init__(self, cell, helper, initial_state, output_layer = None):
@@ -235,14 +239,24 @@ class BasicDecoder(Decoder):
     def batch_size(self):
         return self._helper.batch_size 
 
+    def _rnn_output_size(self):
+        # 单个output的size, batch_size在之后加
+        if self._output_layer is None:
+            return self._cell.output_size
+        else:
+            return self._output_layer.units
+
     @property
     def output_size(self):
-        output_size = self._output_size
-        if self._output_layer is None:
-            return output_size
-        else:
-            layer_output_shape = self._output_layer.compute_output_shape(output_size)
-      return layer_output_shape[1 : ]
+        return BasicDecoderOutput(rnn_output = self._rnn_output_size(),
+                                  sample_id = self._helper.sample_ids_shape)
+
+    @property
+    def output_dtype(self):
+        return BasicDecoderOutput(
+            nest.map_structure(lambda _: tf.float32, self._rnn_output_size()),
+            tf.int32)
+
 
     def initialize(self):
         return self._helper.initialize() + (self._initial_state, )
@@ -252,18 +266,28 @@ class BasicDecoder(Decoder):
         if self._output_layer is not None:
             outputs = self._output_layer(outputs)
         sample_ids = self._helper.sample(time, outputs, state)
-        (finished, next_inputs, next_state) = self._helper.next_inputs(
-            self, time, outputs, state, sample_ids)
+        (finished, next_inputs, next_state) = self._helper.next_inputs(time, outputs, state, sample_ids)
+        # 保留logits以及作为输入的信息sample_ids
+        outputs = BasicDecoderOutput(outputs, sample_ids)
         return (outputs, next_state, next_inputs, finished)
 
 
 def dynamic_decode(decoder):
     (finished, initial_inputs, initial_state) = decoder.initialize()
-    initial_time = tf.constant(0, dtype = dtypes.int32)
+    initial_time = tf.constant(0, dtype = tf.int32)
 
-    output_ta = tf.TensorArray(
-        dtype = tf.float32, size = 0, dynamic_size = True,
-        element_shape = decoder.output_size)
+    def _create_ta(size, dtype):
+        return tf.TensorArray(
+            dtype = dtype,
+            size = 0,
+            dynamic_size = True,
+            element_shape = tensor_shape.TensorShape(
+                _convert_to_shape(decoder.batch_size).concatenate(size)))
+
+    output_ta = nest.map_structure(
+        _create_ta, 
+        decoder.output_size, 
+        decoder.output_dtype)
 
     def _cond(time, finished, inputs, state, output_ta):
         all_finished = math_ops.reduce_all(finished)
@@ -271,15 +295,16 @@ def dynamic_decode(decoder):
     
     def _body(time, finished, inputs, state, output_ta):
         (outputs, next_state, next_inputs, finished) = decoder.step(time, inputs, state)
-        output_ta = output_ta.write(time, outputs)
+        output_ta = nest.map_structure(lambda ta, out: ta.write(time, out), 
+                                       output_ta, outputs)
         return (time + 1, finished, next_inputs, next_state, output_ta)
 
     _, _, _, final_state, output_ta = control_flow_ops.while_loop(
         cond = _cond, 
         body = _body,
-        loop_vars = (time, finished, inputs, state, output_ta))
+        loop_vars = (initial_time, finished, initial_inputs, initial_state, output_ta))
 
-    final_outputs = output_ta.stack()
+    final_outputs = nest.map_structure(lambda ta: ta.stack(), output_ta)
 
     return (final_outputs, final_state)
  
