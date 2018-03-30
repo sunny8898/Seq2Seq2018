@@ -13,6 +13,8 @@ from tensorflow.python.framework import ops
 
 from tensorflow.python.util import nest
 
+max_seq_length = 30
+
 def _convert_to_shape(shape): 
     if isinstance(shape, ops.Tensor):
         return tensor_shape.as_shape(tensor_util.constant_value(shape))
@@ -182,7 +184,9 @@ class GreedyEmbeddingHelper(Helper):
 
     def next_inputs(self, time, outputs, state, sample_ids):
         next_time = time + 1
-        finished = math_ops.equal(sample_ids, self._end_token)
+        finished = math_ops.logical_or(
+            math_ops.equal(sample_ids, self._end_token),
+            math_ops.greater(next_time, max_seq_length))
         all_finished = math_ops.reduce_all(finished)
         next_inputs = control_flow_ops.cond(all_finished, 
                                             lambda: self._start_inputs, 

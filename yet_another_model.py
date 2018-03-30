@@ -28,7 +28,9 @@ class Seq2SeqModel(object):
         
         self.global_step = tf.Variable(0, trainable = False)
         
-        self.saver = tf.train.Saver(tf.global_variables())
+
+
+        self.init = tf.global_variables_initializer()
 
         # [T, B]!
         self.encoder_inputs = tf.placeholder(shape = [None, None], dtype =
@@ -41,19 +43,18 @@ class Seq2SeqModel(object):
         self.target_weights = tf.placeholder(shape = [None, None], dtype =
                                              tf.float32, name = "target_weights")
 
+        """
 
-        # self.decoder_length = tf.placeholder(shape = [None], dtype = tf.int32, 
-                                             # name = "decoder_length")
+        self.encoder_embedding_matrix = tf.Variable(
+            tf.truncated_normal([vocab_size, rnn_size], mean=0.0, stddev=0.1),
+            dtype=tf.float32, name="encoder_embedding_matrix")
 
-        encoder_embedding_matrix = tf.get_variable(name = "encoder_embedding_matrix",
-                                                   shape = [vocab_size,
-                                                            rnn_size],
-                                                   dtype = tf.float32,
-                                                   initializer =
-                                                   tf.truncated_normal_initializer(
-                                                       mean = 1.0, stddev = 0.0), 
-                                                   )
-        decoder_embedding_matrix = tf.get_variable(name = "decoder_embedding_matrix",
+        self.decoder_embedding_matrix = tf.Variable(
+            tf.truncated_normal([vocab_size, rnn_size], mean=0.0, stddev=0.1), 
+            dtype=tf.float32, name="decoder_embedding_matrix")
+
+        """
+        self.encoder_embedding_matrix = tf.get_variable(name = "encoder_embedding_matrix",
                                                    shape = [vocab_size,
                                                             rnn_size],
                                                    dtype = tf.float32,
@@ -61,14 +62,22 @@ class Seq2SeqModel(object):
                                                    tf.truncated_normal_initializer(
                                                        mean = 0.0, stddev = 0.1), 
                                                    )
-        self.encoder_inputs_embedded = tf.nn.embedding_lookup(encoder_embedding_matrix, 
+        self.decoder_embedding_matrix = tf.get_variable(name = "decoder_embedding_matrix",
+                                                   shape = [vocab_size,
+                                                            rnn_size],
+                                                   dtype = tf.float32,
+                                                   initializer =
+                                                   tf.truncated_normal_initializer(
+                                                       mean = 0.0, stddev = 0.1), 
+                                                   )
+        self.encoder_inputs_embedded = tf.nn.embedding_lookup(self.encoder_embedding_matrix, 
                                                               self.encoder_inputs, 
                                                               name = "encoder_inputs_embedded")
-        self.decoder_inputs_embedded = tf.nn.embedding_lookup(decoder_embedding_matrix, 
+        self.decoder_inputs_embedded = tf.nn.embedding_lookup(self.decoder_embedding_matrix, 
                                                               self.decoder_inputs, 
                                                               name = "decoder_inputs_embedded")
 
-        with tf.variable_scope("encoder"):
+        with tf.variable_scope("encoder", reuse = tf.AUTO_REUSE):
             encoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(rnn_size) 
                                                         for _ in range(num_layers)])
 
@@ -76,7 +85,7 @@ class Seq2SeqModel(object):
                 encoder_cell, self.encoder_inputs_embedded, dtype = tf.float32)
 
 
-        with tf.variable_scope("decoder"):
+        with tf.variable_scope("decoder", reuse = tf.AUTO_REUSE):
             decoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(rnn_size)
                                                         for _ in range(num_layers)])
             """attention_mechanism = tf.contrib.seq2seq.LuongAttention(
@@ -103,26 +112,8 @@ class Seq2SeqModel(object):
 
             self.decoder_logits = self.decoder_outputs.rnn_output 
 
-            print("logits: ", self.decoder_logits) # [T, B, D]
 
-
-        
-
-            """
-
-            helper = tf.contrib.seq2seq.TrainingHelper(self.decoder_inputs_embedded,
-                                                       self.decoder_length,
-                                                       time_major = True)
-            decoder = tf.contrib.seq2seq.BasicDecoder(decoder_cell,
-                                                      helper,
-                                                      self.encoder_final_state,
-                                                      fc_layer)
-
-            self.xlogits, final_state, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(decoder)
-            
-            """
-
-        with tf.variable_scope("training"):
+        with tf.variable_scope("training", reuse = tf.AUTO_REUSE):
 
             stepwise_cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
                 labels = tf.one_hot(self.decoder_targets, depth = vocab_size, 
@@ -130,15 +121,20 @@ class Seq2SeqModel(object):
                 logits = self.decoder_logits)
 
             self.loss = tf.reduce_sum(stepwise_cross_entropy * self.target_weights) / tf.reduce_sum(self.target_weights)
+
             params = tf.trainable_variables()
+
             optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+
             gradients = tf.gradients(self.loss, params)
+
             clipped_grad, _ = tf.clip_by_global_norm(gradients, self.max_gradient_norm)
+
             self.training_op = (optimizer.apply_gradients(zip(clipped_grad, params),
                                                       self.global_step))
             # self.global_step -> will be incremented after each update
 
-        with tf.variable_scope("inference"):
+        with tf.variable_scope("inference", reuse = tf.AUTO_REUSE):
 
             num_seq_to_decode = array_ops.shape(self.encoder_inputs)[1] # [T, B]
 
@@ -146,14 +142,12 @@ class Seq2SeqModel(object):
 
             self.tmp = num_seq_to_decode
 
-            start_tokens = tf.tile([0], [num_seq_to_decode])
-            #start_tokens = tf.tile([data_utils.GO_ID], [num_seq_to_decode])
+            start_tokens = tf.tile([data_utils.GO_ID], [num_seq_to_decode])
 
-            end_token = 0
-            #end_token = data_utils.EOS_ID 
+            end_token = data_utils.EOS_ID 
 
             decoding_helper = seq2seq.GreedyEmbeddingHelper(
-                decoder_embedding_matrix, start_tokens, end_token)
+                self.decoder_embedding_matrix, start_tokens, end_token)
 
             greedy_decoder = seq2seq.BasicDecoder(decoder_cell, 
                                                   decoding_helper, 
@@ -164,10 +158,12 @@ class Seq2SeqModel(object):
             self.infer_results = self.infer_results.sample_id
 
 
+        self.saver = tf.train.Saver(tf.global_variables())
+        print(tf.global_variables())
 
 
 
-    def step(self, sess):
+    def test_step(self, sess):
         feed_dict = {self.encoder_inputs.name : [[1, 2], [2, 3], [2, 2], [1, 1]],
                      self.decoder_inputs.name : [[0, 0], [2, 3], [3, 1], [3, 3], [2, 2]], 
                      self.decoder_targets.name : [[2, 3], [3, 1], [3, 3], [2, 2], [0, 0]],
@@ -175,26 +171,38 @@ class Seq2SeqModel(object):
         loss, _ = sess.run([self.loss, self.training_op], feed_dict = feed_dict)
         return loss
 
-    def decode(self, sess):
+    def test_decode(self, sess):
         feed_dict = {self.encoder_inputs.name : [[1, 1, 2], [2, 2, 3], [2, 2, 2], [1, 1, 1]]}
+        results = sess.run([self.infer_results], feed_dict = feed_dict)
+        return results
+
+    def step(self, sess, 
+             encoder_inputs, decoder_inputs, decoder_targets, target_weights):
+        feed_dict = {self.encoder_inputs.name: encoder_inputs,
+                     self.decoder_inputs.name: decoder_inputs,
+                     self.decoder_targets.name: decoder_targets,
+                     self.target_weights.name: target_weights}
+        loss, _ = sess.run([self.loss, self.training_op], feed_dict = feed_dict)
+        return loss
+
+    def predict(self, sess, encoder_inputs):
+        feed_dict = {self.encoder_inputs.name: encoder_inputs}
         results = sess.run([self.infer_results], feed_dict = feed_dict)
         return results
 
 
 
-model = Seq2SeqModel(vocab_size = 4, rnn_size = 10, num_layers = 2, 
-                     max_gradient_norm = 5, learning_rate = 0.9)
 
 
-with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
-    for _ in range(1000):
-        loss = model.step(sess)
-        if _ % 100 == 0:
-            print(loss)
-
-    results = model.decode(sess)
-    print(results)
+def self_test():
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        for _ in range(1000):
+            loss = model.test_step(sess)
+            if _ % 100 == 0:
+                print(loss)
+        results = model.test_decode(sess)
+        print(results)
 
 
 
