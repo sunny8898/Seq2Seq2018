@@ -157,17 +157,6 @@ class TrainingHelper(Helper):
 
 class GreedyEmbeddingHelper(Helper):
     def __init__(self, embedding_matrix, start_tokens, end_token):
-        """Initializer.
-        Args:
-            embedding: A callable that takes a vector tensor of `ids` (argmax ids),
-            or the `params` argument for `embedding_lookup`. The returned tensor
-            will be passed to the decoder input.
-            start_tokens: `int32` vector shaped `[batch_size]`, the start tokens.
-            end_token: `int32` scalar, the token that marks end of decoding.
-        Raises:
-            ValueError: if `start_tokens` is not a 1D tensor or `end_token` is not a
-            scalar.
-        """
         self._embedding_fn = (lambda ids: tf.nn.embedding_lookup(embedding_matrix, ids))
         self._start_tokens = ops.convert_to_tensor(
             start_tokens, dtype = tf.int32, name = "start_tokens")
