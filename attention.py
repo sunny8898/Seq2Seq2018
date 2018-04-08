@@ -1,6 +1,7 @@
 import collections
 import numpy as np
 import tensorflow as tf
+import seq2seq
 
 
 class AttentionMechanism(object):
@@ -23,7 +24,7 @@ class _BaseAttentionMechanism(AttentionMechanism):
         self._memory_layer = memory_layer
         self._probability_fn = probability_fn 
         self._values = memory
-        self._keys = (self.memory_layer(self._value) if self.memory_layer 
+        self._keys = (self.memory_layer(self._values) if self.memory_layer 
                       else self._values)
         self._alignments_size = tf.shape(self._keys)[1] # T
 
@@ -62,10 +63,10 @@ class LuongAttention(_BaseAttentionMechanism):
                  name = "LuongAttention"):
         dtype = tf.float32
         if probability_fn is None:
-            probability_fn = tf.softmax 
+            probability_fn = tf.nn.softmax 
         super(LuongAttention, self).__init__(
             query_layer = None,
-            memory_layer = tf.Dense(num_units, name = "memory_layer", 
+            memory_layer = tf.layers.Dense(num_units, name = "memory_layer", 
                                     use_bias = False, dtype = dtype), 
             memory = memory,
             # probability_fn = lambda score, prev: probability_fn(score))
@@ -88,7 +89,7 @@ class AttentionWrapperState(
 
     # 用于初始化时拷贝进encoder的last cell state
     def clone(self, **kwargs):
-        return super(AttentionWrapperStat, self)._replace(**kwargs)
+        return super(AttentionWrapperState, self)._replace(**kwargs)
 
 def _compute_attention(attention_mechanism, cell_output, attention_layer):
 
@@ -117,10 +118,17 @@ class AttentionWrapper(tf.contrib.rnn.RNNCell):
             cell_input_fn = (lambda inputs, attention: 
                              tf.concat([inputs, attention], 1)) # [B, *]
 
+        self._cell = cell
+        self._attention_mechanism = attention_mechanism
+        self._cell_input_fn = cell_input_fn 
+        self._output_attention = output_attention
+        self._alignment_history = alignment_history 
+
+
         if attention_layer_size is not None:
             self._attention_layer_size = attention_layer_size
             self._attention_size = self._attention_layer_size # attention与cell_output经过attention_layer后输出
-            self._attention_layer = tf.Dense(attention_layer_size, 
+            self._attention_layer = tf.layers.Dense(attention_layer_size, 
                                              name = "attention_layer", 
                                              use_bias = False,
                                              dtype = tf.float32)
@@ -128,12 +136,6 @@ class AttentionWrapper(tf.contrib.rnn.RNNCell):
         else:
             self._attention_layer = None
             self._attention_size = self._attention_mechanism.values.get_shape()[-1].value # 直接输出attention, 是和values中维度相同的向量
-
-        self._cell = cell
-        self._attention_mechanism = attention_mechanism
-        self._cell_input_fn = cell_input_fn 
-        self._output_attention = output_attention
-        self._alignment_history = alignment_history 
 
     def output_size(self):
         if self._output_attention:
@@ -154,11 +156,13 @@ class AttentionWrapper(tf.contrib.rnn.RNNCell):
             cell_state = self._cell.zero_state(batch_size, dtype),
             attention = tf.zeros([batch_size, self._attention_size], dtype = dtype),
             time = tf.zeros([], dtype = tf.int32),
-            alignment_history = tf.TensorArray(dtype, size = 0, dynamic_size = True, 
-                                               element_shape = tf.TensorShape([batch_size,
-                                                                self._attention_mechanism.alignments_size])))
+            alignment_history = (tf.TensorArray(dtype, size = 0, dynamic_size = True, 
+                                               element_shape =
+                                               tf.TensorShape(seq2seq._convert_to_shape(batch_size)).concatenate(
+                                                   seq2seq._convert_to_shape(self._attention_mechanism.alignments_size))))
+            if self._alignment_history else ())
 
-    def call(self, inputs, state):
+    def __call__(self, inputs, state):
 
         cell_inputs = self._cell_input_fn(inputs, state.attention)
         cell_state = state.cell_state

@@ -3,6 +3,7 @@ import numpy as np
 import seq2seq 
 import data_utils
 import attention
+import seq2seq
 
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
@@ -16,18 +17,22 @@ class Seq2SeqModel(object):
                  vocab_size,
                  rnn_size,
                  num_layers,
+                 attention_depth,
                  max_gradient_norm,
                  learning_rate):
 
         self.vocab_size = vocab_size
         self.rnn_size = rnn_size
         self.num_layers = num_layers
+        self.attention_depth = attention_depth
         self.max_gradient_norm = max_gradient_norm
         self.learning_rate = learning_rate
         
         # global_step用于保存模型时的命名
         
         self.global_step = tf.Variable(0, trainable = False)
+
+        self.print_ops = []
         
 
 
@@ -98,20 +103,39 @@ class Seq2SeqModel(object):
                                                                output_attention = True)
 
             """
-            memory = 
+            memory = tf.transpose(self.encoder_all_outputs, perm = [1, 0, 2]) # [T, B, D] -> [B, T, D]
+    
             attention_mechanism = attention.LuongAttention(
-                num_units = attention_depth,
-                memory = transpose(self.encoder_all_outputs)
+                num_units = rnn_size,
+                memory = memory)
+            
+            attn_cell = attention.AttentionWrapper(decoder_cell, 
+                                                   attention_mechanism, 
+                                                   attention_layer_size = attention_depth)
 
             # cell_outputs从[B, D] -> [B, vocab_size]
             fc_layer = tf.layers.Dense(vocab_size) 
 
             training_helper = seq2seq.TrainingHelper(self.decoder_inputs_embedded)
 
+            """
+
             training_decoder = seq2seq.BasicDecoder(decoder_cell,
                                                     training_helper,
                                                     self.encoder_final_state,
                                                     fc_layer)
+            """
+
+            batch_size = tf.shape(self.encoder_all_outputs)[1]
+            self.print_ops.append(tf.Print(batch_size, [batch_size], "batch_size = "))
+
+            training_decoder = seq2seq.BasicDecoder(
+                cell = attn_cell, 
+                helper = training_helper, 
+                initial_state = attn_cell.zero_state(batch_size,
+                                                     tf.float32).clone(cell_state = self.encoder_final_state),
+                output_layer = fc_layer) 
+                                                    
 
             self.decoder_outputs, self.decoder_final_state = seq2seq.dynamic_decode(training_decoder)
 
@@ -154,17 +178,27 @@ class Seq2SeqModel(object):
             decoding_helper = seq2seq.GreedyEmbeddingHelper(
                 self.decoder_embedding_matrix, start_tokens, end_token)
 
+            greedy_decoder = seq2seq.BasicDecoder(
+                cell = attn_cell, 
+                helper = decoding_helper, 
+                initial_state = attn_cell.zero_state(batch_size,
+                                                     tf.float32).clone(cell_state = self.encoder_final_state),
+                output_layer = fc_layer) 
+            
+            """
             greedy_decoder = seq2seq.BasicDecoder(decoder_cell, 
                                                   decoding_helper, 
                                                   self.encoder_final_state,
                                                   fc_layer)
+                                                  """
 
             self.infer_results, self.infer_final_state = seq2seq.dynamic_decode(greedy_decoder)
             self.infer_results = self.infer_results.sample_id
 
+        self.print_ops = [tf.constant(0)]
+
 
         self.saver = tf.train.Saver(tf.global_variables())
-        print(tf.global_variables())
 
 
 
@@ -173,12 +207,12 @@ class Seq2SeqModel(object):
                      self.decoder_inputs.name : [[0, 0], [2, 3], [3, 1], [3, 3], [2, 2]], 
                      self.decoder_targets.name : [[2, 3], [3, 1], [3, 3], [2, 2], [0, 0]],
                      self.target_weights.name : [[1, 1], [1, 1], [1, 1], [1, 1], [1, 1]]}
-        loss, _ = sess.run([self.loss, self.training_op], feed_dict = feed_dict)
+        loss, _, __ = sess.run([self.loss, self.training_op] + self.print_ops, feed_dict = feed_dict)
         return loss
 
     def test_decode(self, sess):
         feed_dict = {self.encoder_inputs.name : [[1, 1, 2], [2, 2, 3], [2, 2, 2], [1, 1, 1]]}
-        results = sess.run([self.infer_results], feed_dict = feed_dict)
+        results = sess.run([self.infer_results] + self.print_ops, feed_dict = feed_dict)
         return results
 
     def step(self, sess, 
@@ -200,6 +234,7 @@ class Seq2SeqModel(object):
 
 
 def self_test():
+    model = Seq2SeqModel(10, 8, 2, 9, 0.1, 0.9)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for _ in range(1000):
