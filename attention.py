@@ -69,7 +69,6 @@ class LuongAttention(_BaseAttentionMechanism):
             memory_layer = tf.layers.Dense(num_units, name = "memory_layer", 
                                     use_bias = False, dtype = dtype), 
             memory = memory,
-            # probability_fn = lambda score, prev: probability_fn(score))
             probability_fn = probability_fn)
         self._num_units = num_units
         
@@ -185,30 +184,4 @@ class AttentionWrapper(tf.contrib.rnn.RNNCell):
             return attention, next_state
         else:
             return cell_output, next_state
-
-
-
-
-
-                                                                                          
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-
 
