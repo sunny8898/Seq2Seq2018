@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import seq2seq 
 import data_utils
+import attention
 
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
@@ -97,6 +98,10 @@ class Seq2SeqModel(object):
                                                                output_attention = True)
 
             """
+            memory = 
+            attention_mechanism = attention.LuongAttention(
+                num_units = attention_depth,
+                memory = transpose(self.encoder_all_outputs)
 
             # cell_outputs从[B, D] -> [B, vocab_size]
             fc_layer = tf.layers.Dense(vocab_size) 
