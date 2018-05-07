@@ -1,19 +1,22 @@
+#coding:utf-8
 import random
 import numpy as np
 import tensorflow as tf
 import time
 import sys
 import data_utils as du
-from yet_another_model import Seq2SeqModel
+from model import Seq2SeqModel
 
-buckets = [(5, 5), (10, 10), (20, 20), (40, 40)]
+buckets = [(10 * i, 10 * i) for i in range(1, 25)]
 
-vocab_size = 2000
+vocab_size = 45000
 batch_size = 32
-rnn_size = 32
-num_layers = 2
+rnn_size = 256
+attention_depth = rnn_size
+encoder_layers = 3
+decoder_layers = 2
 learning_rate = 0.9
-max_gradient_norm = 5
+max_gradient_norm = 10
 
 checkpoint_freq = 100
 verbose_freq = 20
@@ -56,16 +59,11 @@ def put_data_into_buckets(source, target):
     return encoder_inputs, decoder_inputs
 
 filepaths = {
-'trn_src': './data/quora_duplicate_questions_trn.src',
-'trn_tgt': './data/quora_duplicate_questions_trn.tgt',
-'dev_src': './data/quora_duplicate_questions_dev.src',
-'dev_tgt': './data/quora_duplicate_questions_dev.tgt',
-'test_src': './data/quora_duplicate_questions_dev.src',
-'test_tgt': './data/quora_duplicate_questions_dev.tgt'
+'trn_src': './data/train.src',
+'trn_tgt': './data/train.tgt',
 }
-trn_src_ids, trn_tgt_ids, dev_src_ids, dev_tgt_ids, vocab_list, vocab_dict = du.prepare_data(filepaths['trn_src'], filepaths['trn_tgt'], filepaths['dev_src'], filepaths['dev_tgt'], vocab_size)
+trn_src_ids, trn_tgt_ids, vocab_list, vocab_dict = du.prepare_data(filepaths['trn_src'], filepaths['trn_tgt'], vocab_size)
 trn_encoder_inputs, trn_decoder_inputs = put_data_into_buckets(trn_src_ids, trn_tgt_ids)
-dev_encoder_inputs, dev_decoder_inputs = put_data_into_buckets(dev_src_ids, dev_tgt_ids)
 
 
 
@@ -122,18 +120,18 @@ def get_batch(encoder_inputs_all, decoder_inputs_all, bucket_idx, batch_size):
 
 
 def load_model(sess):
-    model = Seq2SeqModel(
-                 vocab_size,
-                 rnn_size,
-                 num_layers,
-                 max_gradient_norm,
-                 learning_rate)
+    model = Seq2SeqModel(vocab_size,
+                         rnn_size,
+                         encoder_layers,
+                         decoder_layers,
+                         attention_depth,
+                         max_gradient_norm,
+                         learning_rate)
     checkpoint = tf.train.get_checkpoint_state(train_path)
     if checkpoint and tf.train.checkpoint_exists(checkpoint.model_checkpoint_path):
         model.saver.restore(sess, checkpoint.model_checkpoint_path)
         print("Load model parameters from %s." % train_path)
     else:
-        # sess.run(model.init)
         sess.run(tf.global_variables_initializer()) # ??
         print("Create a new model.")
     return model
@@ -222,11 +220,6 @@ def predict():
             print('Predicted paraphrase: %s' % predict_sentence)
 
 
-print("To train the model, enter T")
-opt = input()
-if (opt == "T"):
-    train()
-else:
-    predict()
+train()
 
 
