@@ -8,6 +8,12 @@ import seq2seq
 
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.framework import ops
+from tensorflow.python.framework import tensor_shape
+from tensorflow.python.framework import tensor_util
+
+
+
 
 setattr(tf.contrib.rnn.GRUCell, '__deepcopy__', lambda self, _: self)
 setattr(tf.contrib.rnn.BasicLSTMCell, '__deepcopy__', lambda self, _: self)
@@ -21,7 +27,8 @@ class Seq2SeqModel(object):
                  decoder_layers,
                  attention_depth,
                  max_gradient_norm,
-                 learning_rate):
+                 learning_rate,
+                 copy_dict):
 
         self.vocab_size = vocab_size
         self.rnn_size = rnn_size
@@ -35,6 +42,8 @@ class Seq2SeqModel(object):
         
         self.global_step = tf.Variable(0, trainable = False)
 
+        self.print_ops = []
+
         with tf.variable_scope("cnt", reuse = tf.AUTO_REUSE):
             self.global_cnt = tf.get_variable(name = "global_cnt",
                                               shape = [],
@@ -43,7 +52,32 @@ class Seq2SeqModel(object):
                                               tf.constant_initializer(0),
                                               trainable = False)
 
-        self.print_ops = []
+        # copypp list
+        self.copy_dict = copy_dict
+
+        copy_indices_lst = []
+        copy_values_lst = []
+        for k, vs in copy_dict.items():
+            for v in vs:
+                copy_indices_lst.append([v, k])
+                copy_values_lst.append(1)
+        copy_indices = tf.constant(copy_indices_lst, name = "copy_indices")
+        copy_values = tf.constant(copy_values_lst, dtype = tf.float32, name = "copy_values")
+        copy_shape = tf.constant([vocab_size, vocab_size], dtype = tf.int64, name = "copy_shape")
+
+        print(copy_indices.shape)
+
+        copy_mat = tf.SparseTensor(indices = copy_indices_lst, values = copy_values, dense_shape = copy_shape)
+
+        tmp = tf.sparse_tensor_to_dense(copy_mat)
+
+        self.print_ops.append(tf.Print(tmp, [tmp], "copy_mat:",
+                                       summarize = 1000))
+
+
+
+
+
         
 
 
@@ -177,11 +211,32 @@ class Seq2SeqModel(object):
             self.targets_one_hot = tf.one_hot(self.decoder_targets, depth = vocab_size, 
                                     axis = -1, dtype = tf.float32) # [T, B, V]
 
+            def _convert_to_shape(shape): 
+                if isinstance(shape, ops.Tensor):
+                    return tensor_shape.as_shape(tensor_util.constant_value(shape))
+                else:
+                    return shape
+
+            def expand(one_hot):
+
+                one_hot = tf.reshape(one_hot, [-1, vocab_size])
+
+                one_hot_t = tf.transpose(one_hot, [1, 0])
+
+                return tf.add(one_hot, tf.transpose(
+                        tf.sparse_tensor_dense_matmul(copy_mat,
+                                                      one_hot_t), [1, 0]))
+
+
+            self.targets_expanded = tf.reshape(expand(self.targets_one_hot), [-1, batch_size, vocab_size])
+
             stepwise_cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
                 labels = self.targets_one_hot,
                 logits = self.decoder_logits)
 
             self.seq_loss = tf.reduce_sum(stepwise_cross_entropy * self.target_weights) / tf.reduce_sum(self.target_weights)
+
+
 
             tmp = tf.reduce_sum(self.decoder_logits, 0) # [T, B, V] -> [B, V]
 
@@ -198,10 +253,10 @@ class Seq2SeqModel(object):
 
 
 
-            tmp = tf.reduce_sum(self.targets_one_hot * tmp, -1) 
+            tmp = tf.reduce_sum(self.targets_expanded * tmp, -1) 
 
             self.print_ops.append(tf.Print(tmp, [tf.shape(tmp), tmp], 
-                                           "after multi with one_hot:", summarize = 10000)) 
+                                           "after multi with expanded:", summarize = 10000)) 
             tmp = tf.sigmoid(tmp)
 
             self.print_ops.append(tf.Print(tmp, [tf.shape(tmp), tmp], "after sigmoid:\n", summarize = 10000)) 
@@ -212,11 +267,12 @@ class Seq2SeqModel(object):
 
             with tf.control_dependencies([self.global_cnt.assign(
                 self.global_cnt + batch_size)]):
-                self.loss = self.seq_loss + self.bow_loss * self.lbd
+                # self.loss = self.seq_loss + self.bow_loss * self.lbd
+                self.loss = self.bow_loss * self.lbd
 
             params = tf.trainable_variables()
 
-            # optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+            #optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
             optimizer = tf.train.AdamOptimizer()
 
             gradients = tf.gradients(self.loss, params)
@@ -259,7 +315,7 @@ class Seq2SeqModel(object):
                      self.target_weights.name : [[1, 1], [1, 1], [1, 1], [1,
                                                                           1],
                                                  [1, 1]],
-                     self.lbd.name: 0.1}
+                     self.lbd.name: 10}
         loss, _, __ = sess.run([self.loss, self.training_op] + [self.print_ops], feed_dict = feed_dict)
         return loss
 
@@ -292,7 +348,8 @@ class Seq2SeqModel(object):
 
 
 def self_test():
-    model = Seq2SeqModel(10, 8, 3, 2, 8, 0.1, 0.9)
+    copy_dict = {4: [5]}
+    model = Seq2SeqModel(10, 8, 3, 2, 8, 0.1, 0.9, copy_dict)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for _ in range(1000):
@@ -303,7 +360,7 @@ def self_test():
         print(results)
 
 
-self_test()
+# self_test()
 
 
 

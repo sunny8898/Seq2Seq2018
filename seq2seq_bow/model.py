@@ -175,7 +175,8 @@ class Seq2SeqModel(object):
 
             params = tf.trainable_variables()
 
-            optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+            # optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+            optimizer = tf.train.AdamOptimizer()
 
             gradients = tf.gradients(self.loss, params)
 

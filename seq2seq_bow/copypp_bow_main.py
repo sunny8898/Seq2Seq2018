@@ -5,18 +5,22 @@ import tensorflow as tf
 import time
 import sys
 import data_utils as du
-from model import Seq2SeqModel
+from copypp_bow_model import Seq2SeqModel
 
 buckets = [(10 * i, 10 * i) for i in range(1, 25)]
 
-vocab_size = 45000
+vocab_size = 450
 batch_size = 32
-rnn_size = 256
+rnn_size = 32
 attention_depth = rnn_size
 encoder_layers = 3
 decoder_layers = 2
 learning_rate = 0.9
 max_gradient_norm = 10
+
+max_lbd = 1
+lbd_alpha = 0.1
+lbd_beta = 0.1
 
 checkpoint_freq = 100
 verbose_freq = 20
@@ -29,6 +33,7 @@ def list_transpose(inputs):
         a = np.array(inputs)
         b = np.transpose(inputs)
         return list(list(c) for c in b)
+
     
 def put_data_into_buckets(source, target):
     '''将source,target中的句对放入长度合适的bucket里
@@ -58,12 +63,24 @@ def put_data_into_buckets(source, target):
 
     return encoder_inputs, decoder_inputs
 
+def get_copy_dict(vocab):
+    lines = du.read_data(filepaths['copypp'])
+    ids = du.convert_to_token_ids(lines, vocab)
+    copy_dict = {}
+    for line in ids:
+        copy_dict[line[0]] = line[1: ]
+    return copy_dict
+
+
+
 filepaths = {
 'trn_src': './data/train.src',
 'trn_tgt': './data/train.tgt',
+'copypp': './data/copypp.pp'
 }
 trn_src_ids, trn_tgt_ids, vocab_list, vocab_dict = du.prepare_data(filepaths['trn_src'], filepaths['trn_tgt'], vocab_size)
 trn_encoder_inputs, trn_decoder_inputs = put_data_into_buckets(trn_src_ids, trn_tgt_ids)
+copy_dict = get_copy_dict(vocab_dict)
 
 
 
@@ -126,7 +143,8 @@ def load_model(sess):
                          decoder_layers,
                          attention_depth,
                          max_gradient_norm,
-                         learning_rate)
+                         learning_rate,
+                         copy_dict)
     checkpoint = tf.train.get_checkpoint_state(train_path)
     if checkpoint and tf.train.checkpoint_exists(checkpoint.model_checkpoint_path):
         model.saver.restore(sess, checkpoint.model_checkpoint_path)
@@ -173,8 +191,13 @@ def train():
                 trn_decoder_inputs, 
                 bucket_idx, batch_size)
 
+            epoch = int(model.get_cnt(sess)) // trn_total
+
+            lbd = min(lbd_alpha + lbd_beta * epoch, max_lbd)
+
             cur_loss = model.step(
-                sess, encoder_inputs, decoder_inputs, decoder_targets, target_weights)
+                sess, encoder_inputs, decoder_inputs, decoder_targets,
+                target_weights, lbd)
             
             average_loss += cur_loss / verbose_freq
             average_time += (time.time() - current_time_start) / verbose_freq
@@ -186,8 +209,8 @@ def train():
                 print("saving model global step = %d" % model.global_step.eval())
             if current_time_step % verbose_freq == 0:
                 # 打印这个阶段的信息
-                print("global step = %d, average loss = %.3lf, average time = %.3lf" % 
-                      (model.global_step.eval(), average_loss, average_time))
+                print("global step = %d, lbd = %lf, average loss = %.3lf, average time = %.3lf" % 
+                      (model.global_step.eval(), lbd, average_loss, average_time))
                 average_loss, average_time = 0.0, 0.0
                 
         
@@ -249,8 +272,6 @@ def predict_a_lot():
             predict_sentence = ' '.join(predict_words[: truncate])
             print(predict_sentence)
             # print("------------------------------------------------")
-
-
 
 
 train()

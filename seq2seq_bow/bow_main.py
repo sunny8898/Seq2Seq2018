@@ -229,6 +229,37 @@ def predict():
             predict_sentence = ' '.join(predict_words[: truncate])
             print('Predicted paraphrase: %s' % predict_sentence)
 
+def predict_a_lot():
+    tf.reset_default_graph()
+
+    with tf.Session() as sess:
+        model = load_model(sess)
+        
+        while True:
+            sentence = input()
+            if len(sentence.strip().split()) == 0:
+                continue
+
+            # print(sentence)
+            sentence = sentence.strip().split()
+
+            # [B = 1, T]
+            ids = du.convert_to_token_ids([sentence], vocab_dict)
+            encoder_inputs = list_transpose(ids)
+
+            # outputs是一个包含bucket[bucket[idx]][1]个元素的list，每个元素是一个batch_size * vocab_size的np.array
+            predict_ids = model.predict(sess, encoder_inputs)
+            predict_words = [vocab_list[id[0]] for id in predict_ids[0].tolist()]
+            # 截断<EOS>以后的部分
+            truncate = len(predict_words)
+            for i in range(truncate):
+                if predict_words[i] == '<EOS>':
+                    truncate = i
+                    break
+            predict_sentence = ' '.join(predict_words[: truncate])
+            print(predict_sentence)
+            # print("------------------------------------------------")
+
 
 train()
 
