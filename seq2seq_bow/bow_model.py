@@ -214,6 +214,12 @@ class Seq2SeqModel(object):
                 self.global_cnt + batch_size)]):
                 self.loss = self.seq_loss + self.bow_loss * self.lbd
 
+
+            tf.summary.scalar("loss", self.loss)
+            tf.summary.scalar("rnn_loss", self.seq_loss)
+            tf.summary.scalar("bow_loss", self.bow_loss)
+            tf.summary.scalar("lambda", self.lbd)
+
             params = tf.trainable_variables()
 
             # optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
@@ -250,6 +256,8 @@ class Seq2SeqModel(object):
 
         self.saver = tf.train.Saver(tf.global_variables())
 
+        self.sum = tf.summary.merge_all()
+
 
 
     def test_step(self, sess):
@@ -276,8 +284,10 @@ class Seq2SeqModel(object):
                      self.decoder_targets.name: decoder_targets,
                      self.target_weights.name: target_weights,
                      self.lbd.name: lbd}
-        loss, _ = sess.run([self.loss, self.training_op], feed_dict = feed_dict)
-        return loss
+        loss, rnn_loss, bow_loss, summaries, _ = sess.run(
+            [self.loss, self.seq_loss, self.bow_loss, self.sum, self.training_op], 
+            feed_dict = feed_dict)
+        return loss, rnn_loss, bow_loss, summaries
 
     def predict(self, sess, encoder_inputs):
         feed_dict = {self.encoder_inputs.name: encoder_inputs}
@@ -302,8 +312,6 @@ def self_test():
         results = model.test_decode(sess)
         print(results)
 
-
-self_test()
 
 
 

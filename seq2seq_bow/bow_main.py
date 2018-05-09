@@ -7,7 +7,7 @@ import sys
 import data_utils as du
 from bow_model import Seq2SeqModel
 
-buckets = [(10 * i, 10 * i) for i in range(1, 25)]
+buckets = [(10 * i - 9, 10 * i) for i in range(1, 25)]
 
 vocab_size = 450
 batch_size = 32
@@ -154,11 +154,12 @@ def train():
     
     with tf.Session() as sess:
         model = load_model(sess)
+        file_writer = tf.summary.FileWriter(".", sess.graph)
         
         print("Model successfully loaded.")
         
         current_time_step = 0
-        average_loss, average_time = 0.0, 0.0
+        average_loss, average_rnn_loss, average_bow_loss, average_time = 0.0, 0.0, 0.0, 0.0
         
         while (True):
             current_time_step += 1
@@ -179,14 +180,20 @@ def train():
                 bucket_idx, batch_size)
 
             epoch = int(model.get_cnt(sess)) // trn_total
+            epoch = max(0, epoch - 10)
 
             lbd = min(lbd_alpha + lbd_beta * epoch, max_lbd)
 
-            cur_loss = model.step(
+            cur_loss, cur_rnn_loss, cur_bow_loss, summaries = model.step(
                 sess, encoder_inputs, decoder_inputs, decoder_targets,
                 target_weights, lbd)
+
+            file_writer.add_summary(summary = summaries, global_step =
+                                   sess.run(model.global_step))
             
             average_loss += cur_loss / verbose_freq
+            average_rnn_loss += cur_rnn_loss / verbose_freq
+            average_bow_loss += cur_bow_loss / verbose_freq
             average_time += (time.time() - current_time_start) / verbose_freq
             
             if current_time_step % checkpoint_freq == 0:
@@ -196,9 +203,10 @@ def train():
                 print("saving model global step = %d" % model.global_step.eval())
             if current_time_step % verbose_freq == 0:
                 # 打印这个阶段的信息
-                print("global step = %d, lbd = %lf, average loss = %.3lf, average time = %.3lf" % 
-                      (model.global_step.eval(), lbd, average_loss, average_time))
-                average_loss, average_time = 0.0, 0.0
+                print("global step = %d, lbd = %lf, average loss = %.3lf, rnn_loss = %.3lf, bow_loss = %.3lf, average time = %.3lf" % 
+                      (model.global_step.eval(), lbd, average_loss,
+                       average_rnn_loss, average_bow_loss, average_time))
+                average_loss, average_rnn_loss, average_bow_loss, average_time = 0.0, 0.0, 0.0, 0.0
                 
         
                 

@@ -1,3 +1,4 @@
+#-*-coding:utf-8 -*-
 import abc
 import six
 import collections
@@ -295,7 +296,7 @@ def dynamic_decode(decoder):
     _, _, _, final_state, output_ta = control_flow_ops.while_loop(
         cond = _cond, 
         body = _body,
-        loop_vars = (initial_time, finished, initial_inputs, initial_state, output_ta))
+        loop_vars = (initial_time, finished, initial_inputs, initial_state, output_ta), parallel_iterations = 32)
 
     final_outputs = nest.map_structure(lambda ta: ta.stack(), output_ta)
 
